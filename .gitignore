@@ -1,0 +1,4 @@
+disnet/test*
+build/*
+disnet.egg-info/*
+dist/*
