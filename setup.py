@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 try:
-    with open("disnet/requirements.txt", "r") as f:
+    with open("requirements.txt", "r") as f:
         requirements = f.readlines()
 except:
     requirements = []
@@ -15,6 +15,9 @@ setup(
     author_email='orid2004@gmail.com',
     license='MIT',
     packages=find_packages(),
+    include_package_data=True,
+    use_scm_version=True,
+    setup_requires=['setuptools_scm'],
     install_requires=requirements,
     zip_safe=False
 )

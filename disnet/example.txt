@@ -1,0 +1,34 @@
+from disnet.base import Client
+from selfdrive.model import speedlimit
+
+"""
+Author: Ori David
+orid2004@gmail.com
+"""
+
+
+class SDClient:
+    """
+    Name: Self-Drive Client
+    This client handles self-driving jobs which are created
+    by the selfdrive package. This example is used with
+    CARLA simulator as published here:
+    https://github.com/orid2004/Self-Driving-Car
+    """
+
+    def __init__(self, host):
+        self.client = Client(host)
+        self.client.jobs = {
+            "speedlimit": self.sl_predict
+        }
+        self.sl_model = speedlimit.Model()
+        self.sl_model.load_self()
+
+    def sl_predict(self, im):
+        tf_det = self.sl_model.get_tf_detections(im)
+        det = self.sl_model.get_detections(image_np=im, tf_detections=tf_det)
+        if "speedlimit" in det:
+            return "speedlimit", True
+
+    def connect(self):
+        self.client.connect(supported_jobs=["speedlimit"])

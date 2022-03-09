@@ -2,3 +2,8 @@ disnet/test*
 build/*
 disnet.egg-info/*
 dist/*
+rebuid.bat
+server_exe.py
+server_exe.spec
+testserver.bat
+.idea/*

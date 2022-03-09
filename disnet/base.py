@@ -5,46 +5,84 @@ import threading
 import os
 from pymemcache.client import base
 from collections import namedtuple
-from job import Job
+
+from typing import Dict
+
+from .job import Job
+import time
 import gc
 
 Info = namedtuple("Info", ["keys", "supported_jobs"])
+Thread = namedtuple("Thread", ["target", "args"])
+
+
+JOB = "job"
+COUNTER = "counter"
+ANY_JOB = "any"
 
 
 class Server:
     def __init__(self, admins=None):
-        self.clients = {
-            "any": []
-        }
-        self.flags = {
-
-        }
-        self.addr_keys = {
-
-        }
         os.system("memcached -d start")
+        self.clients: Dict[ANY_JOB, list] = {
+            ANY_JOB: []
+        }
+        self.flags = {}
+        self.addr_keys = {}
         self.job_mc = base.Client(('127.0.0.1', 11211))
         self.resp_mc = base.Client(('127.0.0.1', 11211))
-        self.job_mc.set("counter", 0)
-        self.sock = socket.socket()
-        self.sock.bind(('0.0.0.0', 8090))
-        self.sock.listen()
-        self.active = True
+        self.job_mc.set(COUNTER, 0)
+        self.sock = self._bind_socket(8090)
         self.lock = threading.Lock()
         self.job_index = 0
         self.jobs_queue = queue.Queue()
         self.admins = admins
+        self.exit_signal = threading.Event()
+        self.threads: queue.Queue[threading.Thread] = queue.Queue()
         self._start_server()
 
+    @staticmethod
+    def _bind_socket(port):
+        sock = socket.socket()
+        sock.bind(('0.0.0.0', port))
+        sock.listen()
+        return sock
+
     def _start_server(self):
-        threading.Thread(target=self._sign_new_clients).start()
-        threading.Thread(target=self._assign_jobs).start()
-        threading.Thread(target=self._process_data).start()
-        print("Server is up. Waiting...")
+        working_threads = [
+            threading.Thread(target=self._sign_new_clients),
+            threading.Thread(target=self._assign_jobs),
+            threading.Thread(target=self._process_data)
+        ]
+        for t in working_threads:
+            t.start()
+        print("Server is up. Waiting...\n"
+              "Exit with keyboard interrupt (ctrl^C)")
+        try:
+            while not self.exit_signal.is_set():
+                if self.threads.qsize() > 0:
+                    t = self.threads.get()
+                    t.start()
+                    working_threads.append(t)
+                time.sleep(0.2)
+        except KeyboardInterrupt:  # on keyboard interrupt...
+            self.exit_signal.set()
+            for client_lst in self.clients.copy().values():
+                for client in client_lst:
+                    try:
+                        client.close()
+                    except:
+                        pass
+            self.sock.close()
+        for t in working_threads:
+            t.join()
 
     def _sign_new_clients(self):
-        while self.active:
-            client, addr = self.sock.accept()
+        while not self.exit_signal.is_set():
+            try:
+                client, addr = self.sock.accept()
+            except:
+                return
             keys, supported_jobs = pickle.loads(client.recv(2048))
             for job in supported_jobs:
                 if job not in self.clients:
@@ -52,39 +90,36 @@ class Server:
                 self.clients[job].append(client)
             self.flags[client.fileno()] = True
             self.addr_keys[client] = keys
-            print("new client [{}]".format(addr))
-            t = threading.Thread(target=self._handle_client, args=(client, addr))
-            t.start()
+            print("new client {}".format(addr))
+            self.threads.put(threading.Thread(target=self._handle_client, args=(client, addr)))
 
     def _assign_jobs(self):
-        while True:
+        while not self.exit_signal.is_set():
             if self.jobs_queue.qsize() > 0:
                 job = self.jobs_queue.get()
                 if job:
                     job = pickle.loads(job)
-                else:
-                    continue
-                if job.type in self.clients or "any" in self.clients:
-                    client = None
-                    clients_available = self.clients["any"].copy()
-                    if job.type in self.clients:
-                        clients_available += self.clients[job.type]
-                    for client_index in range(0, len(clients_available)):
-                        test_client = clients_available[client_index]
-                        if self.flags[test_client.fileno()]:
-                            client = test_client
-                            break
-                    if client:
-                        self.flags[client.fileno()] = False
-                        job.sock_fileno = client.fileno()
-                        self.lock.acquire()
-                        self.job_mc.set(self.addr_keys[client][0], pickle.dumps(job))
-                        self.lock.release()
-                        del job
-                    else:
-                        job.ttl -= 1
-                        if job.ttl > 0:
-                            self.jobs_queue.put(pickle.dumps(job))
+                    if job.type in self.clients or ANY_JOB in self.clients:
+                        client = None
+                        clients_available = self.clients[ANY_JOB].copy()
+                        if job.type in self.clients:
+                            clients_available += self.clients[job.type]
+                        for client_index in range(0, len(clients_available)):
+                            potential_client = clients_available[client_index]
+                            if self.flags[potential_client.fileno()]:
+                                client = potential_client
+                                break
+                        if client:
+                            job.sock_fileno = client.fileno()
+                            self.flags[job.sock_fileno] = False
+                            self.lock.acquire()
+                            self.job_mc.set(self.addr_keys[client][0], pickle.dumps(job))
+                            self.lock.release()
+                            del job
+                        else:
+                            job.ttl -= 1
+                            if job.ttl > 0:
+                                self.jobs_queue.put(pickle.dumps(job))
 
     def _remove_client(self, client):
         for lst in self.clients.values():
@@ -94,27 +129,27 @@ class Server:
         del self.addr_keys[client]
 
     def _handle_client(self, client, addr):
-        while self.active:
+        while not self.exit_signal.is_set():
             try:
                 data = client.recv(2048)
                 if not data:
-                    self._remove_client(client)
-                    break
+                    raise Exception
             except:
-                self._remove_client(client)
-                break
-        print("removed client [{}]".format(addr))
+                if not self.exit_signal.is_set():
+                    self._remove_client(client)
+                return
+        print("removed client {}".format(addr))
 
     def _process_data(self):
-        while True:
+        while not self.exit_signal.is_set():
             self._look_for_jobs()
             self._look_for_responses()
 
     def _look_for_jobs(self):
-        if self.job_index != int(self.job_mc.get("counter")):
-            job = self.job_mc.get("job" + str(self.job_index))
+        if self.job_index != int(self.job_mc.get(COUNTER)):
+            job = self.job_mc.get(JOB + str(self.job_index))
             self.jobs_queue.put(job)
-            self.job_mc.delete("job" + str(self.job_index))
+            self.job_mc.delete(JOB + str(self.job_index))
             self.job_index += 1
             gc.collect()
 
@@ -122,7 +157,7 @@ class Server:
         keys = self.addr_keys.copy().values()
         for job, resp in keys:
             ret = self.resp_mc.get(resp)
-            if ret and ret is not "None":
+            if ret and ret[:-1][1] is not "None":
                 ret = pickle.loads(ret)
                 data = ret[:-1]
                 client_fileno = ret[-1]
@@ -130,7 +165,7 @@ class Server:
                 self.resp_mc.set(resp, b'')
                 self.resp_mc.delete(job)
                 self.resp_mc.delete(resp)
-                print("new data", data, type(data))
+                print(data)
                 gc.collect()
 
 
@@ -144,22 +179,44 @@ class Client:
         self.resp_key = str(hash(socket.gethostname()))
         self.jobs = {}
         self.lock = threading.Lock()
+        self.exit_signal = threading.Event()
         self.job_queue = queue.Queue()
 
-    def connect(self, supported_jobs=("any",)):
+    def connect(self, supported_jobs=(ANY_JOB,)):
         self.sock_client.connect((self.host, 8090))
         self.job_key = str(hash(self.sock_client.getsockname()[0]))
         self.sock_client.send(pickle.dumps(
             Info((self.job_key, self.resp_key), supported_jobs)
         ))
+        working_threads = []
         if len(supported_jobs) > 0:
-            threading.Thread(target=self._look_for_jobs).start()
+            working_threads.append(threading.Thread(target=self._look_for_jobs))
             print("Client is up. Waiting...")
         else:
             print("Client support no jobs. Probably an admin...")
+        working_threads.append(threading.Thread(target=self.maintain_connection))
+        for t in working_threads:
+            t.start()
+
+        while not self.exit_signal.is_set():
+            time.sleep(0.2)
+
+        for t in working_threads:
+            t.join()
+
+    def maintain_connection(self):
+        while not self.exit_signal.is_set():
+            try:
+                data = self.sock_client.recv(32)
+                if not data:
+                    raise Exception
+            except:
+                self.exit_signal.set()
+                print("Goodbye :)")
+                return
 
     def _look_for_jobs(self):
-        while True:
+        while not self.exit_signal.is_set():
             ret = self.mc.get(self.job_key)
             qsize = self.job_queue.qsize()
             if not ret and qsize == 0:
@@ -173,13 +230,13 @@ class Client:
 
             self.mc.set(self.job_key, b'')
             if job.type in self.jobs:
-                ret = []
                 func = self.jobs[job.type]
-                ret.append(func(*job.args))
+                ret = [func(*job.args)]
                 self.mc.set(self.resp_key, pickle.dumps(tuple(ret + [job.sock_fileno])))
             else:
                 self.mc.set(self.resp_key, pickle.dumps("None"))
             del job
+            gc.collect()
 
 
 class Admin(Client):
@@ -189,9 +246,10 @@ class Admin(Client):
     def add_job(self, job_or_bytes):
         if isinstance(job_or_bytes, bytes):
             while True:
-                index, cas = self.job_mc.gets("counter")
-                if self.job_mc.cas("counter", (int(index) + 1), cas):
-                    self.job_mc.set("job{}".format(int(index)), job_or_bytes)
+                index, cas = self.job_mc.gets(COUNTER)
+                index = int(index)
+                if self.job_mc.cas(COUNTER, (index + 1), cas):
+                    self.job_mc.set(JOB + str(index), job_or_bytes)
                     break
         else:
             self.add_job(pickle.dumps(job_or_bytes))
