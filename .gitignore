@@ -7,3 +7,5 @@ server_exe.py
 server_exe.spec
 testserver.bat
 .idea/*
+test.py
+disnet/server_exe/*

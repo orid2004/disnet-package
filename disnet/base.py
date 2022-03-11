@@ -15,7 +15,6 @@ import gc
 Info = namedtuple("Info", ["keys", "supported_jobs"])
 Thread = namedtuple("Thread", ["target", "args"])
 
-
 JOB = "job"
 COUNTER = "counter"
 ANY_JOB = "any"
@@ -194,6 +193,7 @@ class Client:
             print("Client is up. Waiting...")
         else:
             print("Client support no jobs. Probably an admin...")
+        """
         working_threads.append(threading.Thread(target=self.maintain_connection))
         for t in working_threads:
             t.start()
@@ -203,6 +203,7 @@ class Client:
 
         for t in working_threads:
             t.join()
+        """
 
     def maintain_connection(self):
         while not self.exit_signal.is_set():
