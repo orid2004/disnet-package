@@ -193,10 +193,11 @@ class Client:
             print("Client is up. Waiting...")
         else:
             print("Client support no jobs. Probably an admin...")
-        """
-        working_threads.append(threading.Thread(target=self.maintain_connection))
+
         for t in working_threads:
             t.start()
+        """
+        working_threads.append(threading.Thread(target=self.maintain_connection))
 
         while not self.exit_signal.is_set():
             time.sleep(0.2)
