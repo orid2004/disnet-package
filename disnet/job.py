@@ -1,5 +1,5 @@
 class Job:
-    def __init__(self, type, id, args, ttl=80):
+    def __init__(self, type, id, args, ttl=200):
         self.type = type
         self.id = id
         self.ttl = ttl

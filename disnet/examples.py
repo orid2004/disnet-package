@@ -35,8 +35,7 @@ class SDClient:
         self.sl_model = speedlimit.Model()
         self.sl_model.load_self()
         self.jobs = {
-            "speedlimit": self.sl_predict,
-            "ocr": self.ocr_predict
+            "speedlimit": self.sl_predict
         }
         self.supported_jobs = []
         ocr.load_self()
@@ -51,10 +50,11 @@ class SDClient:
         tf_det = self.sl_model.get_tf_detections(im)
         det = self.sl_model.get_detections(image_np=im, tf_detections=tf_det)
         if "speedlimit" in det:
-            return Data(type="speedlimit", args=(True,), reassign='ocr')
+            return Data(type="speedlimit", args=(ocr.predict(input_images=[im]),), reassign=False)
+            #return Data(type="speedlimit", args=(True,), reassign='ocr')
 
-    def ocr_predict(self, im) -> Data:
-        return Data(type="ocr", args=(ocr.predict(input_images=[im]),), reassign=False)
+    #def ocr_predict(self, im) -> Data:
+        #return Data(type="ocr", args=(ocr.predict(input_images=[im]),), reassign=False)
 
     def connect(self):
         print(f"Connecting to {self.host}...")
