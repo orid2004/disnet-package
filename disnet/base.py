@@ -3,6 +3,8 @@ import socket
 import pickle
 import threading
 import os
+import uuid
+
 from pymemcache.client import base
 from collections import namedtuple
 
@@ -14,6 +16,7 @@ import gc
 
 Info = namedtuple("Info", ["keys", "supported_jobs"])
 Thread = namedtuple("Thread", ["target", "args"])
+Data = namedtuple("Data", ["type", "args", "reassign"])
 
 JOB = "job"
 COUNTER = "counter"
@@ -115,6 +118,8 @@ class Server:
                             self.job_mc.set(self.addr_keys[client][0], pickle.dumps(job))
                             self.lock.release()
                             del job
+                        elif job.ttl == -1:
+                            self.jobs_queue.put(pickle.dumps(job))
                         else:
                             job.ttl -= 1
                             if job.ttl > 0:
@@ -154,17 +159,26 @@ class Server:
 
     def _look_for_responses(self):
         keys = self.addr_keys.copy().values()
+        data: Data
+        job: Job
         for job, resp in keys:
             ret = self.resp_mc.get(resp)
-            if ret and ret[:-1][1] is not "None":
-                ret = pickle.loads(ret)
-                data = ret[:-1]
-                client_fileno = ret[-1]
+            if ret:
+                data, job_obj, client_fileno = pickle.loads(ret)
                 self.flags[client_fileno] = True
                 self.resp_mc.set(resp, b'')
                 self.resp_mc.delete(job)
                 self.resp_mc.delete(resp)
-                print(data)
+                if data:
+                    if data.reassign:
+                        job_obj.type = data.reassign
+                        job_obj.id = uuid.uuid1()
+                        job_obj.ttl = -1
+                        self.jobs_queue.put(pickle.dumps(job_obj))
+                        print(f"Re assigned job [{job_obj.type}] to job [{data.reassign}]")
+                    else:
+                        print(f"New data type=[{data.type}], args=[{data.args}]")
+                    del data
                 gc.collect()
 
 
@@ -196,26 +210,6 @@ class Client:
 
         for t in working_threads:
             t.start()
-        """
-        working_threads.append(threading.Thread(target=self.maintain_connection))
-
-        while not self.exit_signal.is_set():
-            time.sleep(0.2)
-
-        for t in working_threads:
-            t.join()
-        """
-
-    def maintain_connection(self):
-        while not self.exit_signal.is_set():
-            try:
-                data = self.sock_client.recv(32)
-                if not data:
-                    raise Exception
-            except:
-                self.exit_signal.set()
-                print("Goodbye :)")
-                return
 
     def _look_for_jobs(self):
         while not self.exit_signal.is_set():
@@ -233,10 +227,10 @@ class Client:
             self.mc.set(self.job_key, b'')
             if job.type in self.jobs:
                 func = self.jobs[job.type]
-                ret = [func(*job.args)]
-                self.mc.set(self.resp_key, pickle.dumps(tuple(ret + [job.sock_fileno])))
+                data: Data = func(*job.args)
+                self.mc.set(self.resp_key, pickle.dumps((data, job, job.sock_fileno)))
             else:
-                self.mc.set(self.resp_key, pickle.dumps("None"))
+                self.mc.set(self.resp_key, pickle.dumps(((None,), None, job.sock_fileno)))
             del job
             gc.collect()
 

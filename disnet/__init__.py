@@ -1,2 +1,2 @@
-from . import base, job
-__all__ = [base, job]
+from . import base, job, examples
+__all__ = [base, job, examples]
