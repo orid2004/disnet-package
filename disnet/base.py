@@ -38,6 +38,7 @@ class Server:
         self.lock = threading.Lock()
         self.job_index = 0
         self.jobs_queue = queue.Queue()
+        self.high_priority_queue = queue.Queue()
         self.admins = admins
         self.exit_signal = threading.Event()
         self.threads: queue.Queue[threading.Thread] = queue.Queue()
@@ -92,38 +93,44 @@ class Server:
                 self.clients[job].append(client)
             self.flags[client.fileno()] = True
             self.addr_keys[client] = keys
+            print(self.clients)
             print("new client {}".format(addr))
             self.threads.put(threading.Thread(target=self._handle_client, args=(client, addr)))
 
     def _assign_jobs(self):
         while not self.exit_signal.is_set():
-            if self.jobs_queue.qsize() > 0:
+            if self.high_priority_queue.qsize() > 0:
+                job = self.high_priority_queue.get()
+            elif self.jobs_queue.qsize() > 0:
                 job = self.jobs_queue.get()
-                if job:
-                    job = pickle.loads(job)
-                    if job.type in self.clients or ANY_JOB in self.clients:
-                        client = None
-                        clients_available = self.clients[ANY_JOB].copy()
-                        if job.type in self.clients:
-                            clients_available += self.clients[job.type]
-                        for client_index in range(0, len(clients_available)):
-                            potential_client = clients_available[client_index]
-                            if self.flags[potential_client.fileno()]:
-                                client = potential_client
-                                break
-                        if client:
-                            job.sock_fileno = client.fileno()
-                            self.flags[job.sock_fileno] = False
-                            self.lock.acquire()
-                            self.job_mc.set(self.addr_keys[client][0], pickle.dumps(job))
-                            self.lock.release()
-                            del job
-                        elif job.ttl == -1:
+            else:
+                continue
+            if job:
+                job = pickle.loads(job)
+                if job.type in self.clients or ANY_JOB in self.clients:
+                    client = None
+                    clients_available = self.clients[ANY_JOB].copy()
+                    if job.type in self.clients:
+                        clients_available += self.clients[job.type]
+                    for client_index in range(0, len(clients_available)):
+                        potential_client = clients_available[client_index]
+                        if self.flags[potential_client.fileno()]:
+                            client = potential_client
+                            break
+                    if client:
+                        job.sock_fileno = client.fileno()
+                        self.flags[job.sock_fileno] = False
+                        self.lock.acquire()
+                        self.job_mc.set(self.addr_keys[client][0], pickle.dumps(job))
+                        print(f"job {job.type} to client {client}")
+                        self.lock.release()
+                        del job
+                    elif job.ttl == -1:
+                        self.high_priority_queue.put(pickle.dumps(job))
+                    else:
+                        job.ttl -= 1
+                        if job.ttl > 0:
                             self.jobs_queue.put(pickle.dumps(job))
-                        else:
-                            job.ttl -= 1
-                            if job.ttl > 0:
-                                self.jobs_queue.put(pickle.dumps(job))
 
     def _remove_client(self, client):
         for lst in self.clients.values():
@@ -174,7 +181,7 @@ class Server:
                         job_obj.type = data.reassign
                         job_obj.id = uuid.uuid1()
                         job_obj.ttl = -1
-                        self.jobs_queue.put(pickle.dumps(job_obj))
+                        self.high_priority_queue.put(pickle.dumps(job_obj))
                         print(f"Re assigned job [{job_obj.type}] to job [{data.reassign}]")
                     else:
                         print(f"New data type=[{data.type}], args=[{data.args}]")

@@ -33,19 +33,19 @@ class SDClient:
         self.client = Client(host)
         self.host = host
         self.sl_model = speedlimit.Model()
-        print("loas sl")
         self.sl_model.load_self()
         self.jobs = {
             "speedlimit": self.sl_predict,
             "ocr": self.ocr_predict
         }
-        print("load ocr:")
+        self.supported_jobs = []
         ocr.load_self()
 
     def add_jobs(self, *jobs):
         for job in jobs:
             if job in self.jobs:
                 self.client.jobs[job] = self.jobs[job]
+            self.supported_jobs.append(job)
 
     def sl_predict(self, im) -> Data:
         tf_det = self.sl_model.get_tf_detections(im)
@@ -58,4 +58,5 @@ class SDClient:
 
     def connect(self):
         print(f"Connecting to {self.host}...")
-        self.client.connect(supported_jobs=["speedlimit"])
+        print("Supported jobs", self.supported_jobs)
+        self.client.connect(supported_jobs=self.supported_jobs)
