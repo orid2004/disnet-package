@@ -17,25 +17,13 @@ class SDClient:
     https://github.com/orid2004/Self-Driving-Car
     """
 
-    """
-    Usage:
-    from disnet.examples import SDClient
-    client = SDClient("192.168.xx.yy")
-    client.set_jobs(
-        {
-            "speedlimit": client.sl_predict
-            "ocr": client.ocr_predict
-        }
-    )
-    """
-
     def __init__(self, host):
         self.client = Client(host)
         self.host = host
         self.sl_model = speedlimit.Model()
         self.sl_model.load_self()
         self.jobs = {
-            "speedlimit": self.sl_predict
+            "spl": self.sl_predict
         }
         self.supported_jobs = []
         ocr.load_self()
@@ -50,11 +38,7 @@ class SDClient:
         tf_det = self.sl_model.get_tf_detections(im)
         det = self.sl_model.get_detections(image_np=im, tf_detections=tf_det)
         if "speedlimit" in det:
-            return Data(type="speedlimit", args=(ocr.predict(input_images=[im]),), reassign=False)
-            #return Data(type="speedlimit", args=(True,), reassign='ocr')
-
-    #def ocr_predict(self, im) -> Data:
-        #return Data(type="ocr", args=(ocr.predict(input_images=[im]),), reassign=False)
+            return Data(type="speedlimit", args=(ocr.predict(input_images=(im,)),), reassign=False)
 
     def connect(self):
         print(f"Connecting to {self.host}...")
