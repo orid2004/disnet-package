@@ -34,7 +34,16 @@ class Server:
         self.job_mc = base.Client(('127.0.0.1', 11211))
         self.resp_mc = base.Client(('127.0.0.1', 11211))
         self.job_setter = base.Client(('127.0.0.1', 11211))
-        self.job_mc.set(COUNTER, 0)
+        # testing memcached
+        while True:
+            try:
+                self.job_setter.set(COUNTER, 0)
+                self.job_mc.get(COUNTER)
+                self.resp_mc.get(COUNTER)
+            except:
+                time.sleep(1)
+            finally:
+                break
         self.sock = self._bind_socket(8090)
         self.job_index = 0
         self.jobs_queue = queue.Queue()
@@ -130,7 +139,7 @@ class Server:
     def _handle_client(self, client, addr):
         while not self.exit_signal.is_set():
             try:
-                length = client.recv(3).decode()
+                length = client.recv(4).decode()
                 data = client.recv(int(length))
                 if data:
                     self.jobs_queue.put(data)
@@ -142,7 +151,6 @@ class Server:
 
     def _process_data(self):
         while not self.exit_signal.is_set():
-            # self._look_for_jobs()
             self._look_for_responses()
 
     def _look_for_responses(self):
@@ -150,8 +158,6 @@ class Server:
         for job, resp in keys:
             data: Data
             ret = self.resp_mc.get(resp)
-            if not ret:
-                continue
             data, file_no = pickle.loads(ret)
             if data and data.args[0]:
                 self.flags[file_no] = True
@@ -167,6 +173,16 @@ class Client:
         self.host = host
         self.mc = base.Client((self.host, 11211))
         self.job_mc = base.Client((self.host, 11211))
+        # testing memcached
+        while True:
+            try:
+                self.mc.set('_key', 0)
+                self.job_mc.get('_key')
+            except:
+                print("client is not available... retrying...")
+                time.sleep(1)
+            finally:
+                break
         self.sock_client = socket.socket()
         self.job_key = None
         self.resp_key = str(hash(socket.gethostname()))
@@ -190,13 +206,6 @@ class Client:
 
         for t in working_threads:
             t.start()
-        """
-        working_threads.append(threading.Thread(target=self.maintain_connection))
-        while not self.exit_signal.is_set():
-            time.sleep(0.2)
-        for t in working_threads:
-            t.join()
-        """
 
     def maintain_connection(self):
         while not self.exit_signal.is_set():
@@ -239,18 +248,12 @@ class Admin(Client):
     def __init__(self, host):
         super().__init__(host)
 
-    def _adjust_num(self, num):
-        if num < 10:
-            return f'00{num}'.encode()
-        elif num < 100:
-            return f'0{num}'.encode()
-        else:
-            return str(num).encode()
-
     def add_job(self, job):
         args_key = str(uuid.uuid1())
         self.job_mc.set(args_key, pickle.dumps(job.args))
         job.args = args_key
         ret = pickle.dumps(job)
-        self.sock_client.send(self._adjust_num(len(ret)))
+        st_size = str(len(ret))
+        st_size = '0'*(4-len(st_size)) + st_size
+        self.sock_client.send(st_size.encode())
         self.sock_client.send(ret)

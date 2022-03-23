@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/disnet-package.iml" filepath="$PROJECT_DIR$/.idea/disnet-package.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../Carla/CARLA_0.8.2/PythonClient/self-drive/.idea/self-drive.iml" filepath="$PROJECT_DIR$/../Carla/CARLA_0.8.2/PythonClient/self-drive/.idea/self-drive.iml" />
     </modules>
   </component>
 </project>

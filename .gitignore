@@ -3,3 +3,4 @@ disnet.egg-info/*
 dist/*
 rebuid.bat
 disnet/__pycache__/*
+.idea/*
