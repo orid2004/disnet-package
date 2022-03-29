@@ -23,7 +23,7 @@ class SDClient:
         self.sl_model = speedlimit.Model()
         self.sl_model.load_self()
         self.jobs = {
-            "spl": self.sl_predict
+            "speedlimit": self.sl_predict
         }
         self.supported_jobs = []
         ocr.load_self()
