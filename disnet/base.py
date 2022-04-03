@@ -4,7 +4,8 @@ import pickle
 import threading
 import os
 import uuid
-
+import datetime
+print(datetime.datetime.now())
 from pymemcache.client import base
 from collections import namedtuple
 
@@ -16,7 +17,6 @@ import time
 import gc
 
 import logging
-import shutil
 # Creating and Configuring Logger
 
 if os.path.isfile("..\\logfile.log"):
@@ -39,7 +39,6 @@ Data = namedtuple("Data", ["type", "args", "reassign"])
 JOB = "job"
 COUNTER = "counter"
 ANY_JOB = "any"
-print("done")
 
 
 class Server:
@@ -70,14 +69,12 @@ class Server:
         self.exit_signal = threading.Event()
         self.threads: queue.Queue[threading.Thread] = queue.Queue()
         self.gui: Gui
-        t = threading.Thread(target=self.tk_mainloop)
-        self.threads.put(t)
         try:
             self._start_server()
         except Exception as e:
             print(e)
 
-    def tk_mainloop(self):
+    def _tk_mainloop(self):
         self.gui = Gui()
         self.gui.start()
 
@@ -90,12 +87,13 @@ class Server:
 
     def _start_server(self):
         working_threads = [
-            threading.Thread(target=self._sign_new_clients),
-            threading.Thread(target=self._assign_jobs),
-            threading.Thread(target=self._process_data)
+            self._sign_new_clients,
+            self._assign_jobs,
+            self._process_data,
+            self._tk_mainloop
         ]
         for t in working_threads:
-            t.start()
+            threading.Thread(target=t).start()
         print("Server is up. Waiting...\n"
               "Exit with keyboard interrupt (ctrl^C)")
         try:
@@ -120,6 +118,7 @@ class Server:
                 client, addr = self.sock.accept()
             except:
                 return
+            Shared.servers.put(addr)
             keys, supported_jobs = pickle.loads(client.recv(2048))
             if supported_jobs[0] == "admin":
                 jobs = supported_jobs[1]
