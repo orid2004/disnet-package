@@ -13,14 +13,15 @@ from collections import namedtuple
 
 warnings.filterwarnings("ignore")
 
-Stats = namedtuple("Stats", ["all", "lost", "detections"])
+Event = namedtuple("Event", ["type", "args"])
+
 
 class Shared:
     servers = queue.Queue()
     jobs = queue.Queue()
+    events = queue.Queue()
     data = []
-    event = True
-    stats = Stats(0, 0, 0)
+    stats = [0, 0, 0]
 
 
 class Statistic:
@@ -31,12 +32,12 @@ class Statistic:
         tk.Label(root, text=name, font='Montserrat 12 bold', bg='#0a2866', fg='#FFFFFF').place(x=25, y=y)
         tk.Canvas(root, width=160, height=20, bg="#c7d5e0", bd=0, highlightthickness=0).place(x=125, y=y + 5)
         tk.Canvas(root, width=int(1.6 * value), height=20, bg=color, bd=0, highlightthickness=0).place(x=125, y=y + 5)
-        self.value_label = tk.Label(root, text=f'{value}%', font='Montserrat 12 bold', bg='#0a2866', fg='#FFFFFF')
+        self.value_label = tk.Label(root, text=f'{value}', font='Montserrat 12 bold', bg='#0a2866', fg='#FFFFFF')
         self.value_label.place(x=300, y=y)
         Statistic.y += 30
 
     def config(self, value=None):
-        self.value_label.config(text=f'{value}%')
+        self.value_label.config(text=f'{value}')
 
 
 class Gui:
@@ -144,13 +145,14 @@ class Gui:
     """
 
     def update_stats(self):
-        if self.stats.all != 0:
-            self.lost_label.config(value=int(self.stats.lost / self.stats.all * 100))
+        if self.stats[0] != 0:
+            self.lost_label.config(value=self.stats[1])
             # label update
-            self.detections_label.config(value=int(self.stats.detections / self.stats.all * 100))
+            self.detections_label.config(value=self.stats[2])
             # label update
 
     def update_job_status(self):
+        print(self.jobs)
         for label in self.job_labels:
             self.job_labels[label].destroy()
             del label
@@ -203,7 +205,7 @@ class Gui:
     def inc_count(self, host):
         label = self.label_by_host[host]
         count = int(label["text"])
-        label.config(text=str(count+1))
+        label.config(text=str(count + 1))
 
     def start(self):
         try:
@@ -212,7 +214,7 @@ class Gui:
             exit(0)
 
     def _loop(self):
-        while Shared.event:
+        while True:
             self.root.update()
             while Shared.servers.qsize() > 0:
                 if Shared.jobs.qsize() > 0:
@@ -226,6 +228,10 @@ class Gui:
                 self.update_job_status()
             while Shared.jobs.qsize() > 0:
                 self.add_job(Shared.jobs.get())
+            while Shared.events.qsize() > 0:
+                event = Shared.events.get()
+                if event.type == "inc":
+                    self.inc_count(event.args[0])
             self.mem_usage.config(value=psutil.virtual_memory()[2])
             self.stats = Shared.stats
             self.update_stats()

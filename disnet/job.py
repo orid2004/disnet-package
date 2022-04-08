@@ -5,3 +5,4 @@ class Job:
         self.ttl = ttl
         self.args = args
         self.sock_fileno = 0
+        self.time_stamp = 0

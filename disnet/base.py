@@ -12,7 +12,7 @@ from collections import namedtuple
 from typing import Dict
 
 from .job import Job
-from .gui import Gui, Shared
+from .gui import Gui, Shared, Event
 import time
 import gc
 
@@ -49,6 +49,7 @@ class Server:
         }
         self.flags = {}
         self.addr_keys = {}
+        self.addresses = {}
         self.job_mc = base.Client(('127.0.0.1', 11211))
         self.resp_mc = base.Client(('127.0.0.1', 11211))
         self.job_setter = base.Client(('127.0.0.1', 11211))
@@ -75,9 +76,9 @@ class Server:
             print(e)
 
     def _tk_mainloop(self):
-        self.gui = Gui()
-        self.gui.start()
-
+        #self.gui = Gui()
+        #self.gui.start()
+        pass
     @staticmethod
     def _bind_socket(port):
         sock = socket.socket()
@@ -118,7 +119,6 @@ class Server:
                 client, addr = self.sock.accept()
             except:
                 return
-            Shared.servers.put(addr)
             keys, supported_jobs = pickle.loads(client.recv(2048))
             if supported_jobs[0] == "admin":
                 jobs = supported_jobs[1]
@@ -127,12 +127,14 @@ class Server:
                 print("Server supports jobs", jobs)
                 supported_jobs = []
             else:
+                Shared.servers.put([addr, supported_jobs])
                 for job in supported_jobs:
                     if job not in self.clients:
                         self.clients[job] = []
                     self.clients[job].append(client)
             self.flags[client.fileno()] = True
             self.addr_keys[client] = keys
+            self.addresses[client] = addr
             print("new client", addr, supported_jobs, keys)
             self.threads.put(threading.Thread(target=self._handle_client, args=(client, addr)))
 
@@ -142,7 +144,6 @@ class Server:
             if self.jobs_queue.qsize() > 0:
                 job = self.jobs_queue.get()
                 if job:
-                    job = pickle.loads(job)
                     if job.type in self.clients or ANY_JOB in self.clients:
                         client = None
                         clients_available = self.clients[ANY_JOB].copy()
@@ -157,18 +158,20 @@ class Server:
                                 break
                         if client:
                             job.sock_fileno = client.fileno()
+                            Shared.events.put(
+                                Event(type="inc", args=(self.addresses[client],))
+                            )
                             logger.info(f"{job.id} for client {job.sock_fileno}")
                             self.flags[job.sock_fileno] = False
                             self.job_setter.set(self.addr_keys[client][0], pickle.dumps(job))
                             del job
                         else:
-                            job.ttl -= 1
-                            if job.ttl > 0:
-                                logger.info(f"{job.id} no clients, retrying... ({self.flags})")
-                                self.jobs_queue.put(pickle.dumps(job))
+                            diff = time.time() - job.time_stamp
+                            if diff < 1.5:
+                                self.jobs_queue.put(job)
                             else:
                                 Shared.stats[1] += 1
-                                logger.info(f"{job.id} dump not clients...")
+                                logger.info(f"{job.id} dump not clients... Diff is {diff}")
                 else:
                     print("none job")
 
@@ -186,7 +189,9 @@ class Server:
                 length = client.recv(4).decode()
                 data = client.recv(int(length))
                 if data:
-                    self.jobs_queue.put(data)
+                    job: Job = pickle.loads(data)
+                    job.time_stamp = time.time()
+                    self.jobs_queue.put(job)
                     Shared.stats[0] += 1
             except:
                 if not self.exit_signal.is_set():
@@ -211,6 +216,7 @@ class Server:
                     self.resp_mc.delete(job)
                     self.resp_mc.delete(resp)
                     print(f"New Data. Type={data.type}, Args={data.args}")
+                    Shared.stats[2] += 1
                     gc.collect()
 
 
@@ -280,10 +286,14 @@ class Client:
             self.mc.set(self.job_key, b'')
             if job.type in self.jobs:
                 func = self.jobs[job.type]
-                args = pickle.loads(self.mc.get(job.args))
-                ret = func(*args)
-                self.mc.set(self.resp_key, pickle.dumps((ret, job.sock_fileno)))
-                self.mc.delete(job.args)
+                args = self.mc.get(job.args)
+                if args:
+                    args = pickle.loads(args)
+                    ret = func(*args)
+                    self.mc.set(self.resp_key, pickle.dumps((ret, job.sock_fileno)))
+                    self.mc.delete(job.args)
+                else:
+                    self.mc.set(self.resp_key, pickle.dumps((None, None)))
             else:
                 self.mc.set(self.resp_key, pickle.dumps((None, None)))
             del job
@@ -294,12 +304,10 @@ class Admin(Client):
     def __init__(self, host):
         super().__init__(host)
 
-    def add_job(self, job):
-        args_key = str(uuid.uuid1())
-        self.job_mc.set(args_key, pickle.dumps(job.args))
-        job.args = args_key
-        ret = pickle.dumps(job)
-        st_size = str(len(ret))
-        st_size = '0' * (4 - len(st_size)) + st_size
-        self.sock_client.send(st_size.encode())
-        self.sock_client.send(ret)
+    def add_jobs(self, jobs):
+        for job in jobs:
+            st_size = str(len(job))
+            st_size = '0' * (4 - len(st_size)) + st_size
+            self.sock_client.send(st_size.encode())
+            self.sock_client.send(job)
+        print("Added ~25 jobs to queue")
