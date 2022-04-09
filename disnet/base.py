@@ -288,7 +288,7 @@ class Client:
             self.mc.set(self.job_key, b'')
             if job.type in self.jobs:
                 func = self.jobs[job.type]
-                args = self.mc.get("screens")[job.args]
+                args = self.mc.get(job.args)
                 if args:
                     args = pickle.loads(args)
                     ret = func(*args)
