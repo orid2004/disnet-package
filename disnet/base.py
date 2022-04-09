@@ -144,6 +144,8 @@ class Server:
             if self.jobs_queue.qsize() > 0:
                 job = self.jobs_queue.get()
                 if job:
+                    if job.time_stamp == 0:
+                        job.time_stamp = time.time()
                     if job.type in self.clients or ANY_JOB in self.clients:
                         client = None
                         clients_available = self.clients[ANY_JOB].copy()
@@ -186,12 +188,11 @@ class Server:
     def _handle_client(self, client, addr):
         while not self.exit_signal.is_set():
             try:
-                length = client.recv(4).decode()
+                length = client.recv(8).decode()
                 data = client.recv(int(length))
                 if data:
-                    job: Job = pickle.loads(data)
-                    job.time_stamp = time.time()
-                    self.jobs_queue.put(job)
+                    for job in pickle.loads(data):
+                        self.jobs_queue.put(job)
                     Shared.stats[0] += 1
             except:
                 if not self.exit_signal.is_set():
@@ -225,6 +226,7 @@ class Client:
         self.host = host
         self.mc = base.Client((self.host, 11211))
         self.job_mc = base.Client((self.host, 11211))
+        self.screens = {}
         # testing memcached
         while True:
             try:
@@ -286,7 +288,7 @@ class Client:
             self.mc.set(self.job_key, b'')
             if job.type in self.jobs:
                 func = self.jobs[job.type]
-                args = self.mc.get(job.args)
+                args = self.mc.get("screens")[job.args]
                 if args:
                     args = pickle.loads(args)
                     ret = func(*args)
@@ -305,9 +307,8 @@ class Admin(Client):
         super().__init__(host)
 
     def add_jobs(self, jobs):
-        for job in jobs:
-            st_size = str(len(job))
-            st_size = '0' * (4 - len(st_size)) + st_size
-            self.sock_client.send(st_size.encode())
-            self.sock_client.send(job)
-        print("Added ~25 jobs to queue")
+        data = pickle.dumps(jobs)
+        st_size = str(len(data))
+        st_size = '0' * (8 - len(st_size)) + st_size
+        self.sock_client.send(st_size.encode())
+        self.sock_client.send(data)
