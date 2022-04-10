@@ -76,8 +76,8 @@ class Server:
             print(e)
 
     def _tk_mainloop(self):
-        #self.gui = Gui()
-        #self.gui.start()
+        self.gui = Gui()
+        self.gui.start()
         pass
     @staticmethod
     def _bind_socket(port):
@@ -145,14 +145,13 @@ class Server:
                 job = self.jobs_queue.get()
                 if job:
                     if job.time_stamp == 0:
+                        logger.info(f"{job.id} New in queue. {job.time_stamp}")
                         job.time_stamp = time.time()
                     if job.type in self.clients or ANY_JOB in self.clients:
                         client = None
                         clients_available = self.clients[ANY_JOB].copy()
                         if job.type in self.clients:
                             clients_available += self.clients[job.type]
-                        logger.info(f"{job.id} searching: {clients_available}")
-                        logger.info(f"{job.id} flags are {self.flags}")
                         for client_index in range(0, len(clients_available)):
                             potential_client = clients_available[client_index]
                             if self.flags[potential_client.fileno()]:
@@ -163,7 +162,7 @@ class Server:
                             Shared.events.put(
                                 Event(type="inc", args=(self.addresses[client],))
                             )
-                            logger.info(f"{job.id} for client {job.sock_fileno}")
+                            logger.info(f"{job.id} Job for client {job.sock_fileno}")
                             self.flags[job.sock_fileno] = False
                             self.job_setter.set(self.addr_keys[client][0], pickle.dumps(job))
                             del job
@@ -173,7 +172,7 @@ class Server:
                                 self.jobs_queue.put(job)
                             else:
                                 Shared.stats[1] += 1
-                                logger.info(f"{job.id} dump not clients... Diff is {diff}")
+                                logger.info(f"{job.id} Lost as no clients are available")
                 else:
                     print("none job")
 
@@ -302,13 +301,3 @@ class Client:
             gc.collect()
 
 
-class Admin(Client):
-    def __init__(self, host):
-        super().__init__(host)
-
-    def add_jobs(self, jobs):
-        data = pickle.dumps(jobs)
-        st_size = str(len(data))
-        st_size = '0' * (8 - len(st_size)) + st_size
-        self.sock_client.send(st_size.encode())
-        self.sock_client.send(data)
