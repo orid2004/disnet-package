@@ -211,6 +211,7 @@ class Server:
             if ret:
                 data, file_no = pickle.loads(ret)
                 self.flags[file_no] = True
+                print("client", file_no, "is free!")
                 if data and data.args[0]:
                     self.resp_mc.set(resp, b'')
                     self.resp_mc.delete(job)
