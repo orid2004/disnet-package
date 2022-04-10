@@ -293,6 +293,7 @@ class Client:
                     args = pickle.loads(args)
                     ret = func(*args)
                     self.mc.set(self.resp_key, pickle.dumps((ret, job.sock_fileno)))
+                    print("response is in:", self.resp_key, "\n", ret)
                     self.mc.delete(job.args)
                 else:
                     self.mc.set(self.resp_key, pickle.dumps((None, None)))
