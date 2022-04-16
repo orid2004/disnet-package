@@ -94,3 +94,22 @@ class Client:
             self.sock_client.send(st_size.encode())
             self.sock_client.send(ret)
             del job
+
+class Admin(Client):
+    """
+    Constructor for admin class.
+    """
+    def __init__(self, host):
+        super()._init_(host)
+        self.screens_mc = base.Client((self.host, 11211))
+
+    def put_jobs(self, jobs):
+        """
+        Sends a packet consists of jobs to the server.
+        Length must be sent as an 8 digits string.
+        """
+        data = pickle.dumps(jobs)
+        st_size = str(len(data))
+        st_size = '0' * (8 - len(st_size)) + st_size
+        self.sock_client.send(st_size.encode())
+        self.sock_client.send(data)
