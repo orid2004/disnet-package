@@ -101,7 +101,7 @@ class Admin(Client):
     """
     def __init__(self, host):
         super()._init_(host)
-        self.screens_mc = base.Client((self.host, 11211))
+        self.mc_writer = base.Client((self.host, 11211))
 
     def put_jobs(self, jobs):
         """
