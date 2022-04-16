@@ -55,7 +55,7 @@ class Client:
         """
         Verifies memcache as the client depends on it.
         Memcache-windows-64bit must be started on the server side.
-        :return:
+        :return: None
         """
         while True:
             try:
