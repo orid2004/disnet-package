@@ -1,96 +1,96 @@
-import queue
 import socket
 import pickle
 import threading
-import datetime
-print(datetime.datetime.now())
+import time
+import uuid
+
 from pymemcache.client import base
 from .job import Job
-import time
-import gc
-
-JOB = "job"
-COUNTER = "counter"
-ANY_JOB = "any"
+from .settings import Tuple_Info as Info, ANY_JOB
 
 
 class Client:
     def __init__(self, host):
+        """
+        Constructor for a Client
+        :param host: Server host
+        """
         self.host = host
-        self.mc = base.Client((self.host, 11211))
-        self.job_mc = base.Client((self.host, 11211))
-        self.screens = {}
-        # testing memcached
-        while True:
-            try:
-                self.mc.set('_key', 0)
-                self.job_mc.get('_key')
-            except:
-                print("client is not available... retrying...")
-                time.sleep(1)
-            finally:
-                break
+        self.mc_listener = base.Client((self.host, 11211))
+        self._verify_memcache()
         self.sock_client = socket.socket()
         self.job_key = None
-        self.resp_key = str(hash(socket.gethostname()))
-        self.jobs = {}
-        self.lock = threading.Lock()
+        self.functions = {}
         self.exit_signal = threading.Event()
-        self.job_queue = queue.Queue()
 
     def connect(self, supported_jobs=(ANY_JOB,)):
+        """
+        Connects to the server and sends the information required
+        for the communication.
+        :param supported_jobs: The offered services by the client-server.
+        :return: None
+        """
+        print(f"Connecting to {self.host}...")
         self.sock_client.connect((self.host, 8090))
-        self.job_key = str(hash(self.sock_client.getsockname()[0]))
+        self.job_key = str(uuid.uuid1())
         self.sock_client.send(pickle.dumps(
-            Info((self.job_key, self.resp_key), supported_jobs)
+            Info((self.job_key, None), supported_jobs)
         ))
+        self._start_client(supported_jobs)
+
+    def _start_client(self, supported_jobs):
+        """
+        Starts all threads
+        :return: None
+        """
         working_threads = []
         if len(supported_jobs) > 0:
             working_threads.append(threading.Thread(target=self._look_for_jobs))
-            print("Client is up. Waiting...")
-        else:
-            print("Client support no jobs. Probably an admin...")
+            print("Client is up. Waiting for jobs...")
 
         for t in working_threads:
             t.start()
 
-    def maintain_connection(self):
-        while not self.exit_signal.is_set():
+    def _verify_memcache(self):
+        """
+        Verifies memcache as the client depends on it.
+        Memcache-windows-64bit must be started on the server side.
+        :return:
+        """
+        while True:
             try:
-                data = self.sock_client.recv(32)
-                if not data:
-                    raise Exception
+                self.mc_listener.set('_tmp', 0)
             except:
-                self.exit_signal.set()
-                print("Goodbye :)")
+                print("Error: Memcache is not available. retrying...")
+                time.sleep(1)
+            finally:
                 return
 
     def _look_for_jobs(self):
+        """
+        This is the main thread. It waits for jobs
+        in memcache and read them. Data is processed to
+        the matching function in `` dictionary.
+        :return: Sends output to the server.
+        """
         while not self.exit_signal.is_set():
-            ret = self.mc.get(self.job_key)
-            qsize = self.job_queue.qsize()
-            if not ret and qsize == 0:
+            ret = self.mc_listener.get(self.job_key)
+            if not ret:
+                time.sleep(0.1)
                 continue
-            elif qsize > 0:
-                if ret:
-                    self.job_queue.put(ret)
-                job: Job = pickle.loads(self.job_queue.get())
-            else:
-                job: Job = pickle.loads(ret)
-
-            self.mc.set(self.job_key, b'')
-            if job.type in self.jobs:
-                func = self.jobs[job.type]
-                args = self.mc.get(job.args)
+            job: Job = pickle.loads(ret)
+            self.mc_listener.set(self.job_key, b'')
+            ret = None
+            if job.type in self.functions:
+                func = self.functions[job.type]
+                args = self.mc_listener.get(job.args)
                 if args:
+                    # Process the data and get output
                     args = pickle.loads(args)
                     ret = func(*args)
-                    self.mc.set(self.resp_key, pickle.dumps((ret, job.sock_fileno)))
-                    print("response is in:", self.resp_key, "\n", ret)
-                    self.mc.delete(job.args)
-                else:
-                    self.mc.set(self.resp_key, pickle.dumps((None, None)))
-            else:
-                self.mc.set(self.resp_key, pickle.dumps((None, None)))
+            ret = pickle.dumps((ret, job.sock_fileno))
+            st_size = str(len(ret))
+            st_size = '0' * (8 - len(st_size)) + st_size
+            self.sock_client.send(st_size.encode())
+            self.sock_client.send(ret)
             del job
-            gc.collect()

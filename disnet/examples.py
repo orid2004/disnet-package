@@ -1,4 +1,5 @@
-from .base import Client, Data
+from .client import Client
+from .settings import Tuple_Data as Data
 from selfdrive.model import speedlimit
 from selfdrive import ocr
 
@@ -18,29 +19,46 @@ class SDClient:
     """
 
     def __init__(self, host):
+        """
+        Constructor for the example client
+        :param host: Server host
+        """
         self.client = Client(host)
         self.host = host
         self.sl_model = speedlimit.Model()
-        self.sl_model.load_self()
+        # SDClient supports speedlimit prediction:
         self.jobs = {
-            "speedlimit": self.sl_predict
+            "speedlimit": self._sl_predict
         }
         self.supported_jobs = []
-        ocr.load_self()
+        self._load_required_models()
 
     def add_jobs(self, *jobs):
+        """
+        Sets the supported jobs of the client
+        :param jobs: supported jobs
+        :return: None
+        """
         for job in jobs:
             if job in self.jobs:
-                self.client.jobs[job] = self.jobs[job]
+                self.client.functions[job] = self.jobs[job]
             self.supported_jobs.append(job)
 
-    def sl_predict(self, im) -> Data:
+    def _load_required_models(self):
+        """
+        Loads object-detection models that are required.
+        :return:
+        """
+        self.sl_model.load_self()
+        ocr.load_self()
+
+    def _sl_predict(self, im) -> Data:
+        """
+        Functionality for `speedlimit` job
+        :param im: image array
+        :return: None / OCR detection of the speedlimit sign.
+        """
         tf_det = self.sl_model.get_tf_detections(im)
         det = self.sl_model.get_detections(image_np=im, tf_detections=tf_det)
         if "speedlimit" in det:
             return Data(type="speedlimit", args=(ocr.predict(input_images=(im,)),), reassign=False)
-
-    def connect(self):
-        print(f"Connecting to {self.host}...")
-        print("Supported jobs", self.supported_jobs)
-        self.client.connect(supported_jobs=self.supported_jobs)

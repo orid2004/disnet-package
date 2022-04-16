@@ -3,37 +3,30 @@ import socket
 import pickle
 import threading
 import os
-import datetime
-print(datetime.datetime.now())
-from pymemcache.client import base
-from collections import namedtuple
-from typing import Dict
-from .gui import Gui, Shared, Event
 import time
 import gc
 import logging
 
-if os.path.isfile("..\\logfile.log"):
-    os.remove("..\\logfile.log")
+from pymemcache.client import base
+from typing import Dict
+from .gui import Gui, Shared, Event
+from .settings import ANY_JOB, COUNTER
+
+LOG_FILE = "logfile.log"
+
+if os.path.isfile(LOG_FILE):
+    os.remove(LOG_FILE)
 
 Log_Format = "%(levelname)s %(asctime)s - %(message)s"
-logging.basicConfig(filename="logfile.log",
+logging.basicConfig(filename=LOG_FILE,
                     filemode="w",
                     format=Log_Format,
                     level=logging.INFO)
 logger = logging.getLogger()
 
-Info = namedtuple("Info", ["keys", "supported_jobs"])
-Thread = namedtuple("Thread", ["target", "args"])
-Data = namedtuple("Data", ["type", "args", "reassign"])
-
-JOB = "job"
-COUNTER = "counter"
-ANY_JOB = "any"
-
 
 class Server:
-    def __init__(self):
+    def __init__(self, admins):
         # os.system("memcached -d start")
         self.clients: Dict[ANY_JOB, list] = {
             ANY_JOB: []
@@ -60,7 +53,11 @@ class Server:
         self.jobs_queue = queue.Queue()
         self.exit_signal = threading.Event()
         self.threads: queue.Queue[threading.Thread] = queue.Queue()
+        self.admins = admins
         self.gui: Gui
+        # threading.Thread(target=self._tk_mainloop).start()
+
+    def start_server(self):
         try:
             self._start_server()
         except Exception as e:
@@ -70,6 +67,7 @@ class Server:
         self.gui = Gui()
         self.gui.start()
         pass
+
     @staticmethod
     def _bind_socket(port):
         sock = socket.socket()
@@ -81,7 +79,6 @@ class Server:
         working_threads = [
             self._sign_new_clients,
             self._assign_jobs,
-            self._process_data,
             self._tk_mainloop
         ]
         for t in working_threads:
@@ -117,17 +114,18 @@ class Server:
                     Shared.jobs.put(job)
                 print("Server supports jobs", jobs)
                 supported_jobs = []
+                self.threads.put(threading.Thread(target=self._handle_admin, args=(client, addr)))
             else:
                 Shared.servers.put([addr, supported_jobs])
                 for job in supported_jobs:
                     if job not in self.clients:
                         self.clients[job] = []
                     self.clients[job].append(client)
+                self.threads.put(threading.Thread(target=self._handle_client, args=(client, addr)))
             self.flags[client.fileno()] = True
             self.addr_keys[client] = keys
             self.addresses[client] = addr
             print("new client", addr, supported_jobs, keys)
-            self.threads.put(threading.Thread(target=self._handle_client, args=(client, addr)))
 
     def _assign_jobs(self):
         global logger
@@ -166,6 +164,8 @@ class Server:
                                 logger.info(f"{job.id} Lost as no clients are available")
                 else:
                     print("none job")
+            else:
+                time.sleep(0.2)
 
     def _remove_client(self, client):
         print("removing client")
@@ -175,7 +175,8 @@ class Server:
         del self.flags[client.fileno()]
         del self.addr_keys[client]
 
-    def _handle_client(self, client, addr):
+    def _handle_admin(self, client, addr):
+        print('handle admin here')
         while not self.exit_signal.is_set():
             try:
                 length = client.recv(8).decode()
@@ -188,25 +189,52 @@ class Server:
                 if not self.exit_signal.is_set():
                     self._remove_client(client)
                 return
+        print("removed admin {}".format(addr))
+
+    def _handle_client(self, client, addr):
+        print("handle client here")
+        while not self.exit_signal.is_set():
+            try:
+                length = client.recv(8).decode()
+                data = client.recv(int(length))
+                self.free_client(data)
+            except:
+                if not self.exit_signal.is_set():
+                    self._remove_client(client)
+                return
         print("removed client {}".format(addr))
 
-    def _process_data(self):
-        while not self.exit_signal.is_set():
-            self._look_for_responses()
+    def free_client(self, ret):
+        if ret:
+            data, file_no = pickle.loads(ret)
+            self.flags[file_no] = True
+            if data and data.args[0]:
+                print(f"DATA | Type={data.type}, Args={data.args}")
+                logger.info(f"client {file_no} has a detection! {data.type, data.args}")
+                Shared.stats[2] += 1
+            logger.info(f"client {file_no} is free and waiting")
+            gc.collect()
+
+    """
 
     def _look_for_responses(self):
         keys = self.addr_keys.copy().values()
+        if len(keys) == 0:
+            print("ERROR ERROR")
         for job, resp in keys:
             data: Data
             ret = self.resp_mc.get(resp)
             if ret:
                 data, file_no = pickle.loads(ret)
                 self.flags[file_no] = True
-                print("client", file_no, "is free!")
+
                 if data and data.args[0]:
-                    self.resp_mc.set(resp, b'')
-                    self.resp_mc.delete(job)
-                    self.resp_mc.delete(resp)
                     print(f"New Data. Type={data.type}, Args={data.args}")
+                    logger.info(f"client {file_no} has a detection! {data.type, data.args}")
                     Shared.stats[2] += 1
-                    gc.collect()
+                logger.info(f"client {file_no} is free and waiting")
+                self.resp_mc.set(resp, b'')
+                self.resp_mc.delete(job)
+                self.resp_mc.delete(resp)
+                gc.collect()
+    """
