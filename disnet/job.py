@@ -4,5 +4,5 @@ class Job:
         self.id = id
         self.ttl = ttl
         self.args = args
-        self.sock_fileno = 0
+        self.client_id = None
         self.time_stamp = 0

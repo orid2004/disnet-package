@@ -1,5 +1,5 @@
 from .client import Client
-from .settings import Tuple_Data as Data
+from .settings import Data
 from selfdrive.model import speedlimit
 from selfdrive import ocr
 
@@ -32,6 +32,13 @@ class SDClient:
         }
         self.supported_jobs = []
         self._load_required_models()
+
+    def connect(self):
+        """
+        Connects to the server
+        :return: None
+        """
+        self.client.connect(supported_jobs=self.supported_jobs)
 
     def add_jobs(self, *jobs):
         """

@@ -18,6 +18,7 @@ Event = namedtuple("Event", ["type", "args"])
 
 class Shared:
     servers = queue.Queue()
+    removed_servers = queue.Queue()
     jobs = queue.Queue()
     events = queue.Queue()
     data = []
@@ -161,10 +162,10 @@ class Gui:
             tk.Label(self.root, text=job, font="Montserrat 14 bold", bg='#0a2866', fg='#FFFFFF').place(x=25,
                                                                                                        y=current_y)
             is_supported = self.jobs[job]
-            text, fg = ("Support", "green") if is_supported else ("No-Support", "red")
-            label = tk.Label(self.root, text=f"[{text}]", font='Montserrat 14 bold', bg='#0a2866', fg=fg)
-            label.place(x=200, y=current_y)
-            self.job_labels[job] = label
+            #text, fg = ("Support", "green") if is_supported else ("No-Support", "red")
+            #label = tk.Label(self.root, text=f"[{text}]", font='Montserrat 14 bold', bg='#0a2866', fg=fg)
+            #label.place(x=200, y=current_y)
+            #self.job_labels[job] = label
             current_y += 30
 
     def add_job(self, job):
@@ -181,6 +182,13 @@ class Gui:
 
     def add_server(self, server):
         self.servers.append(server)
+        self.update_server_list()
+
+    def remove_server(self, server):
+        self.servers.remove(server)
+        self.update_server_list()
+
+    def update_server_list(self):
         self.num_pages = len(self.servers) // (self.max_servers_in_page + 1) + 1
         self.config_next_btn()
         self.place_servers()
@@ -226,6 +234,15 @@ class Gui:
                     if job in self.jobs:
                         self.jobs[job].append(server)
                 self.update_job_status()
+            while Shared.removed_servers.qsize() > 0:
+                server = Shared.removed_servers.get()
+                if server in self.servers:
+                    print("got rm")
+                    print("start rm func")
+                    self.remove_server(server)
+                    print("done remove done update")
+                else:
+                    print("bad error", self.servers)
             while Shared.jobs.qsize() > 0:
                 self.add_job(Shared.jobs.get())
             while Shared.events.qsize() > 0:
