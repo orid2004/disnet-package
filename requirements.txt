@@ -1,1 +1,4 @@
 pymemcache
+pyopenssl
+putils
+wget
