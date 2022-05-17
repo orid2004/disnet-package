@@ -22,7 +22,7 @@ class Shared:
     jobs = queue.Queue()
     events = queue.Queue()
     data = []
-    stats = [0, 0, 0]
+    stats = [1, 0, 0]
 
 
 class Statistic:
@@ -30,16 +30,23 @@ class Statistic:
 
     def __init__(self, root, name, value, color):
         y = Statistic.y
+        self.color = color
+        self.root = root
         tk.Label(root, text=name, font='Montserrat 12 bold', bg='#0a2866', fg='#FFFFFF').place(x=25, y=y)
         tk.Canvas(root, width=160, height=20, bg="#c7d5e0", bd=0, highlightthickness=0).place(x=125, y=y + 5)
-        tk.Canvas(root, width=int(1.6 * value), height=20, bg=color, bd=0, highlightthickness=0).place(x=125, y=y + 5)
-        self.value_label = tk.Label(root, text=f'{value}', font='Montserrat 12 bold', bg='#0a2866', fg='#FFFFFF')
+        self.value_pos = (125, y + 5)
+        tk.Canvas(root, width=int(1.6 * value), height=20, bg=self.color, bd=0, highlightthickness=0).place(
+            x=self.value_pos[0], y=self.value_pos[1]
+        )
+        self.value_label = tk.Label(root, text=f'{value}%', font='Montserrat 12 bold', bg='#0a2866', fg='#FFFFFF')
         self.value_label.place(x=300, y=y)
         Statistic.y += 30
 
-    def config(self, value=None):
-        self.value_label.config(text=f'{value}')
-
+    def config(self, value):
+        self.value_label.config(text=f'{value}%')
+        tk.Canvas(self.root, width=int(1.6 * value), height=20, bg=self.color, bd=0, highlightthickness=0).place(
+            x=self.value_pos[0], y=self.value_pos[1]
+        )
 
 class Gui:
     def __init__(self):
@@ -55,7 +62,6 @@ class Gui:
         root.configure(bg='#c7d5e0')
 
         def on_closing():
-            print("event false")
             Shared.event = False
             root.destroy()
 
@@ -147,13 +153,12 @@ class Gui:
 
     def update_stats(self):
         if self.stats[0] != 0:
-            self.lost_label.config(value=self.stats[1])
+            self.lost_label.config(value=int(self.stats[1]/self.stats[0]*100))
             # label update
-            self.detections_label.config(value=self.stats[2])
+            self.detections_label.config(value=int(self.stats[2]/self.stats[0]*100))
             # label update
 
     def update_job_status(self):
-        print(self.jobs)
         for label in self.job_labels:
             self.job_labels[label].destroy()
             del label
@@ -237,12 +242,7 @@ class Gui:
             while Shared.removed_servers.qsize() > 0:
                 server = Shared.removed_servers.get()
                 if server in self.servers:
-                    print("got rm")
-                    print("start rm func")
                     self.remove_server(server)
-                    print("done remove done update")
-                else:
-                    print("bad error", self.servers)
             while Shared.jobs.qsize() > 0:
                 self.add_job(Shared.jobs.get())
             while Shared.events.qsize() > 0:

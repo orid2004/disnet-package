@@ -163,40 +163,38 @@ class Server:
                 self.logger.info(f"Exception in _sign_new_clients: {e}")
                 continue
             ret = client.recv(2048)
-            packet: Packet = pickle.loads(ret)
-            if packet.type == "key_ex":
-                key_ex: Key_Ex = packet.packet
-                key, supported_jobs, mode = key_ex
+            packet: PACKET = pickle.loads(ret)
+            if packet.code == Codes.KEY_EX:
+                key, supported_jobs, mode = packet.content
                 if mode == Modes.admin:
                     if self.mem_host.host == '':
-                        response = Error(
+                        response = ERROR(
                             type="memcached",
                             details="No memcached server."
                         )
-                        packet_type = "error"
+                        code = Codes.ERROR
                     elif addr[0] not in self.admins:
-                        response = Error(
+                        response = ERROR(
                             type="forbidden",
                             details="You do not have permission to connect as admin."
                         )
-                        packet_type = "error"
+                        code = Codes.ERROR
                     else:
                         print("Admin has connected", addr)
-                        response = Approval(
+                        response = APPROVAL(
                             host=self.mem_host.host,
                             port=self.mem_host.port,
                             mode=Modes.admin
                         )
-                        packet_type = "approval"
-                        # Insert to TREAD ABA
+                        code = Codes.APPROVAL
                         for job in supported_jobs:
                             Shared.jobs.put(job)
                         self.threads.put(threading.Thread(target=self._handle_admin, args=(client, addr)))
                     client.send(
                         pickle.dumps(
-                            Packet(
-                                type=packet_type,
-                                packet=response
+                            PACKET(
+                                code=code,
+                                content=response
                             )
                         )
                     )
@@ -204,9 +202,9 @@ class Server:
                     if not self.mem_host.host:
                         client.send(
                             pickle.dumps(
-                                Packet(
-                                    type="approval",
-                                    packet=Approval(
+                                PACKET(
+                                    code=Codes.APPROVAL,
+                                    content=APPROVAL(
                                         host="",
                                         port=MEM_PORT,
                                         mode=Modes.memcached
@@ -226,9 +224,9 @@ class Server:
                             self.clients[job].append(client)
                         client.send(
                             pickle.dumps(
-                                Packet(
-                                    type="approval",
-                                    packet=Approval(
+                                PACKET(
+                                    code=Codes.APPROVAL,
+                                    content=APPROVAL(
                                         host=self.mem_host.host,
                                         port=MEM_PORT,
                                         mode=mode
@@ -326,7 +324,7 @@ class Server:
                 if data:
                     for job in pickle.loads(data):
                         self.jobs_queue.put(job)
-                    Shared.stats[0] += 1
+                        Shared.stats[0] += 1
             except Exception as e:
                 self.logger.info(f"An exception was raised while trying to receive data from {addr}.\n"
                                  f"Details: {e}")
@@ -375,8 +373,8 @@ class Server:
 
         while not self.exit_signal.is_set():
             try:
-                packet: Packet = pickle.loads(client.recv(1024))
-                if packet.type == "close":
+                packet: PACKET = pickle.loads(client.recv(1024))
+                if packet.code == Codes.END:
                     close_connection()
                     return
             except Exception as e:
